@@ -1,0 +1,13 @@
+name: Option Sweep
+on: {workflow_dispatch: null}
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        shape_profile: [rectangular, rounded_rectangle, trapezoidal]
+        link_type: [ring, pyramid, hybrid]
+        connector_type: [loop_hinge, socket_peg, fused_row]
+    steps:
+      - uses: actions/checkout@v4
+      - run: echo sweep placeholder
