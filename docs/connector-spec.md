@@ -25,11 +25,17 @@ for the fabric to swing - out to the panel edge.
 "fused" is the point of the connector, and concatenation leaves overlapping
 shells rather than one bar.
 
-## Known gap
+## Placement
 
-Panels and fabric are generated in unrelated coordinate frames, so the stem
-length is an artefact of that layout rather than a real dimension. Assembly
-positioning is not implemented.
+Link sites are carried into the bag frame with the same transform their fabric
+wall received, so the ring lands where the fabric actually is. Each site is then
+joined to the *nearest* point on the panel edge. Spreading sites evenly along
+the whole edge instead ties a ring in the middle of the fabric to a point at the
+far end of the panel whenever the fabric is narrower than the bag, which is what
+produced 130mm stems before.
+
+One connector is emitted per fabric wall: `connector_front` and
+`connector_back`.
 
 ## Validation
 

@@ -33,6 +33,19 @@ class ConnectorBuilder:
         idx = np.linspace(0, len(edge_curve) - 1, n).astype(int)
         return edge_curve[idx]
 
+    def edge_points_for_sites(self, edge_curve, sites):
+        """The point on the panel edge nearest each link site.
+
+        Spreading the sites evenly along the whole edge instead would tie a ring
+        in the middle of the fabric to a point at the far end of the panel
+        whenever the fabric is narrower than the bag, which is the long-stem
+        failure this replaced.
+        """
+        edge = np.asarray(edge_curve, float)
+        centers = np.array([np.asarray(c, float) for c, _ in sites])
+        distances = np.linalg.norm(centers[:, None, :] - edge[None, :, :], axis=2)
+        return edge[distances.argmin(axis=1)]
+
     def link_ring(self, center, normal, outer_diameter, tube_radius):
         ring = make_torus(outer_diameter, tube_radius)
         ring.apply_transform(trimesh.geometry.align_vectors([0.0, 0.0, 1.0], normal))
@@ -40,26 +53,37 @@ class ConnectorBuilder:
         return ring
 
     def stem(self, center, normal, edge_point, outer_diameter):
-        """A bar from the far side of the link ring to the panel edge.
+        """A bar from the rim of the link ring to the panel edge.
 
         It leaves from the rim rather than the centre so it never crosses the
-        ring's hole, which has to stay clear for the fabric to swing.
+        ring's hole, which has to stay clear for the fabric to swing, and it
+        leaves from the side facing the panel so the stem is as short as the
+        assembly allows.
         """
         radius = outer_diameter / 2 - self.config.loop_tube_radius
-        away = np.array([0.0, -1.0, 0.0])
-        rim = np.asarray(center, float) + away * radius
+        center = np.asarray(center, float)
         target = np.asarray(edge_point, float)
+        toward = target - center
+        normal = np.asarray(normal, float)
+        toward = toward - normal * np.dot(toward, normal)   # keep it in the ring's plane
+        if np.linalg.norm(toward) < 1e-9:
+            toward = np.array([0.0, -1.0, 0.0])
+        rim = center + toward / np.linalg.norm(toward) * radius
         if np.linalg.norm(target - rim) < 1e-9:
             return None
         return trimesh.creation.cylinder(radius=self.config.loop_tube_radius,
                                          segment=[rim, target])
 
-    def build_parts(self, edge_curve, fabric_builder):
-        """One fused (link ring + stem) body per link site."""
-        sites = fabric_builder.link_sites()
+    def build_parts(self, edge_curve, fabric_builder, sites=None):
+        """One fused (link ring + stem) body per link site.
+
+        `sites` lets the caller pass link sites already carried into the bag
+        frame; without it the fabric's own untransformed sites are used.
+        """
+        sites = fabric_builder.link_sites() if sites is None else sites
         od = fabric_builder.config.outer_diameter
         tr = fabric_builder.config.tube_radius
-        edge_points = self.resample_edge_to_anchors(edge_curve, sites)
+        edge_points = self.edge_points_for_sites(edge_curve, sites)
         parts = []
         for (center, normal), edge_point in zip(sites, edge_points):
             pieces = [self.link_ring(center, normal, od, tr)]
@@ -96,9 +120,10 @@ class ConnectorBuilder:
             pieces.append(joint)
         return trimesh.boolean.union(pieces, engine="manifold")
 
-    def build(self, edge_curve, fabric_builder):
-        parts = self.build_parts(edge_curve, fabric_builder)
-        edge_points = self.resample_edge_to_anchors(edge_curve, fabric_builder.link_sites())
+    def build(self, edge_curve, fabric_builder, sites=None):
+        sites = fabric_builder.link_sites() if sites is None else sites
+        parts = self.build_parts(edge_curve, fabric_builder, sites)
+        edge_points = self.edge_points_for_sites(edge_curve, sites)
         if self.config.type == "loop_hinge":
             return self.build_loop_hinges(parts)
         if self.config.type == "socket_peg":

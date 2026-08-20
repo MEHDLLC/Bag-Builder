@@ -86,13 +86,38 @@ Every connector's link ring is a ring of the fabric's own lattice placed one row
 before the first, so it threads row 0 exactly the way a real neighbouring row
 would and is held by the same verified geometry.
 
-### Known gap: assembly layout
+### Assembly
 
-The panels and the fabric are still generated in unrelated coordinate frames -
-the panel is centred on the origin, the fabric grows away from it - so while the
-connector is genuinely linked to the fabric, the distance its stem spans to the
-panel is an artefact of that layout rather than a real dimension. Laying the
-parts out in one assembly frame is not done yet.
+Parts are placed into one bag frame - x is width, y is depth, z is height with
+z=0 the underside of the bottom panel:
+
+| Part | Placement |
+|---|---|
+| `bottom_panel` | flat at z=0 |
+| `end_panel_left` / `end_panel_right` | stood on end at x = -W/2 and +W/2 |
+| `fabric_front` / `fabric_back` | tipped up into walls at y = -D/2 and +D/2 |
+| `connector_front` / `connector_back` | joining each wall's bottom row to the bottom panel |
+
+Which edge carries the connector is decided by the lattice rather than by
+preference: in 4-in-1 links only run between adjacent *rows*, so a sheet can be
+joined along a horizontal row. A vertical column edge has no lattice position
+that links it, which is why the fabric hangs from its bottom row instead of
+being seamed up the sides.
+
+### Sizing the fabric to the bag
+
+Rows and columns are counts, not dimensions, so a fabric can be far smaller than
+the wall it is supposed to cover - which is what makes a generated bag come out
+as a flat mat. Every run reports coverage in `manifest.json` and warns when the
+fabric leaves more than a tenth of the wall bare:
+
+    warning: fabric covers 88% of the bag width and 21% of its height.
+    Set fabric.fit_body: true, or rows: 95 and columns: 34, to fill the wall.
+
+`fabric.fit_body: true` derives the counts from the body dimensions, rounding
+down so the sheet never hangs off the end. Ring size drives the count: filling a
+300x220 bag needs about 3300 rings per wall at an 8mm ring but about 860 at a
+16mm one, so scale the ring to the bag rather than the other way round.
 
 An unrecognised `fabric.link_type` or `connector.type` is rejected by
 `validate_config` before any geometry is built, rather than silently falling back.

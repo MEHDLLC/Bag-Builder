@@ -5,8 +5,9 @@ from src.connectors.connector_builder import ConnectorBuilder, ConnectorConfig
 from src.mesh.ring_mesh import RingMeshConfig, RingMeshBuilder, ring_normal
 from src.mesh.interlink import is_linked
 
-# A panel edge running above and behind the fabric, as edge_curve("top") gives.
-EDGE = np.array([[float(x) * 2, -12.0, 3.0] for x in range(12)])
+# A panel edge running below and in front of the fabric, spanning its full
+# width the way a real bottom panel edge does.
+EDGE = np.array([[x, -12.0, 3.0] for x in np.linspace(-2.0, 38.0, 64)])
 
 
 def _fabric(rows=4, columns=4):

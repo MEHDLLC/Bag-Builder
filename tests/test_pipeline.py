@@ -26,15 +26,16 @@ def _write_config(tmp_path, **fabric_and_connector):
 def test_hybrid_fabric_generates_through_the_pipeline(tmp_path):
     cfg = _write_config(tmp_path, fabric={"link_type": "hybrid"})
     written = generate(cfg, str(tmp_path / "out"))
-    assert "fabric.stl" in written
+    assert "fabric_front.stl" in written
 
 
 def test_fused_row_emits_a_connector_part(tmp_path):
     # This part used to be silently missing whenever fused_row was chosen.
     cfg = _write_config(tmp_path, connector={"type": "fused_row"})
     written = generate(cfg, str(tmp_path / "out"))
-    assert "connector_left.stl" in written
-    assert os.path.getsize(written["connector_left.stl"]) > 0
+    assert "connector_front.stl" in written
+    assert "connector_back.stl" in written
+    assert os.path.getsize(written["connector_front.stl"]) > 0
 
 
 def test_crossbody_hybrid_example_uses_both_new_features(tmp_path):
