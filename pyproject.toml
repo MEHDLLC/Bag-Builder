@@ -1,0 +1,8 @@
+[tool.pytest.ini_options]
+# The tests import the package as `src.…` from the repo root, and the repo has
+# no installable package metadata. `python -m pytest` happens to work because
+# it puts the working directory on sys.path, but a bare `pytest` - what CI and
+# CONTRIBUTING.md both run - does not. Put the root on the path explicitly so
+# every invocation behaves the same.
+pythonpath = ["."]
+testpaths = ["tests"]
