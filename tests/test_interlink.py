@@ -78,3 +78,36 @@ def test_parallel_rings_can_never_link():
     # The reason rows have to alternate their lean.
     n = np.array([0.0, 0.0, 1.0])
     assert not is_linked([0, 0, 0], n, [3.0, 0, 0], n, 3.5)
+
+
+@pytest.mark.parametrize("curvature", [0.0, 0.1, 0.3, 0.6, 1.0])
+def test_drape_does_not_break_the_lattice(curvature):
+    """Drape has to bend the sheet, not shear it.
+
+    Every interlink test used to pin curvature to zero, so nobody noticed that
+    the shipped default of 0.3 dropped some rings to two links and that 0.1-0.2
+    drove neighbouring rings into each other hard enough to fuse.
+    """
+    builder = RingMeshBuilder(RingMeshConfig(rows=5, columns=5, drape_curvature=curvature))
+    builder.generate()
+    counts, worst = lattice_report(builder)
+    interior = [n for (r, c), n in counts.items() if 0 < r < 4 and 0 < c < 4]
+    assert set(interior) == {4}
+    assert worst >= builder.config.clearance_gap
+
+
+def test_drape_actually_curves_the_sheet():
+    flat = RingMeshBuilder(RingMeshConfig(rows=8, columns=3, drape_curvature=0.0)).generate()
+    bent = RingMeshBuilder(RingMeshConfig(rows=8, columns=3, drape_curvature=0.8)).generate()
+    span = lambda m: m.bounds[1][2] - m.bounds[0][2]
+    assert span(bent) > span(flat)
+
+
+def test_rows_stay_one_pitch_apart_along_the_draped_surface():
+    """The property that makes drape safe: bending moves rows along the surface,
+    it does not change how far apart they are on it."""
+    builder = RingMeshBuilder(RingMeshConfig(rows=8, columns=3, drape_curvature=0.8))
+    # Only the y-z components: x carries the half-pitch stagger of odd rows.
+    surface = [builder.ring_center(r, 0)[1:] for r in range(8)]
+    steps = [np.linalg.norm(b - a) for a, b in zip(surface, surface[1:])]
+    assert all(s == pytest.approx(builder.row_pitch(), rel=0.02) for s in steps)

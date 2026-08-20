@@ -19,12 +19,43 @@ ROW_PITCH_RATIO = 0.65
 MIN_ASPECT_RATIO = 4.0
 
 
+# Full curvature bends the sheet through this angle end to end.
+MAX_BEND_DEGREES = 90.0
+
+
 def drape_z(row, total_rows, curvature):
-    """Height of a row on the drape curve: zero at both edges, peak in the middle."""
+    """Height of a row on the drape curve: zero at both edges, peak in the middle.
+
+    Kept for callers that want the old scalar. Note that displacing rows in z
+    like this does not bend a sheet - it shears it - and the shear swamps the
+    lattice, which is why the builder uses drape_frame instead.
+    """
     if total_rows <= 1:
         return 0.0
     t = row / (total_rows - 1)
     return curvature * 20.0 * (1 - (2 * t - 1) ** 2)
+
+
+def drape_frame(row, total_rows, curvature, row_pitch):
+    """Where a row sits on the draped sheet, and how far it has rotated.
+
+    Drape bends the sheet, so a row is carried around an arc *and turned* with
+    it. Rows stay one row pitch apart measured along the surface, which is what
+    keeps the lattice - and with it the linkage and the clearance - identical to
+    the flat sheet at any curvature. Sliding rows in z instead would shear the
+    lattice apart: at the old default the shear between neighbouring rows was
+    larger than the row pitch itself, which both broke links and fused rings.
+
+    Returns (y, z, bend) with bend in radians about the x axis.
+    """
+    span = row * row_pitch
+    if curvature <= 0 or total_rows <= 1:
+        return span, 0.0, 0.0
+    arc = (total_rows - 1) * row_pitch
+    total_angle = np.radians(MAX_BEND_DEGREES) * curvature
+    radius = arc / total_angle
+    theta = (span - arc / 2) / radius
+    return radius * np.sin(theta), radius * (1 - np.cos(theta)), theta
 
 
 def ring_tilt(row, tilt_degrees=TILT_DEGREES):
@@ -86,17 +117,29 @@ class RingMeshBuilder:
     def row_pitch(self):
         return ROW_PITCH_RATIO * self.centerline_radius
 
+    def _drape(self, row):
+        return drape_frame(row, self.config.rows, self.config.drape_curvature, self.row_pitch())
+
     def ring_center(self, row, col):
-        dx, dy = self.column_pitch(), self.row_pitch()
+        dx = self.column_pitch()
         x = col * dx + (dx / 2 if row % 2 else 0.0)
-        z = drape_z(row, self.config.rows, self.config.drape_curvature)
-        return np.array([x, row * dy, z])
+        y, z, _ = self._drape(row)
+        return np.array([x, y, z])
+
+    def ring_angle(self, row):
+        """Total rotation about x: the ring's own lean plus the sheet's bend."""
+        _, _, bend = self._drape(row)
+        return ring_tilt(row, self.config.tilt_degrees) + bend
+
+    def ring_normal_at(self, row):
+        angle = self.ring_angle(row)
+        return np.array([0.0, -np.sin(angle), np.cos(angle)])
 
     def make_ring(self, row):
         c = self.config
         ring = make_torus(c.outer_diameter, c.tube_radius)
         ring.apply_transform(
-            trimesh.transformations.rotation_matrix(ring_tilt(row, c.tilt_degrees), [1, 0, 0]))
+            trimesh.transformations.rotation_matrix(self.ring_angle(row), [1, 0, 0]))
         return ring
 
     def link_sites(self):
@@ -107,7 +150,7 @@ class RingMeshBuilder:
         connector is held by the same verified geometry as the fabric itself.
         """
         c = self.config
-        return [(self.ring_center(-1, col), ring_normal(-1, c.tilt_degrees))
+        return [(self.ring_center(-1, col), self.ring_normal_at(-1))
                 for col in range(c.columns)]
 
     def anchor_points(self):

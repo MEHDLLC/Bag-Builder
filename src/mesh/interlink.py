@@ -57,14 +57,11 @@ def surface_gap(center_a, normal_a, center_b, normal_b, radius, tube_radius, seg
 
 def lattice_report(builder, rows=None, columns=None):
     """Linked-neighbour count and worst clearance for a built ring lattice."""
-    from .ring_mesh import ring_normal
-
     rows = rows if rows is not None else builder.config.rows
     columns = columns if columns is not None else builder.config.columns
     radius = builder.centerline_radius
     tube_radius = builder.config.tube_radius
-    tilt = builder.config.tilt_degrees
-    sites = {(r, c): (builder.ring_center(r, c), ring_normal(r, tilt))
+    sites = {(r, c): (builder.ring_center(r, c), builder.ring_normal_at(r))
              for r in range(rows) for c in range(columns)}
     link_counts = {}
     worst = float("inf")
