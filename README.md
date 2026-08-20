@@ -99,6 +99,49 @@ The arm geometry is derived from `tile_pitch` and `clearance_gap` rather than
 given in millimetres, so changing either stays self-consistent. Impossible
 combinations are rejected with the specific dimension to change.
 
+#### The tile's shape is a variable; the joint is not
+
+The joint - loop, pin and head - is fixed and verified. The **core** those arms
+hang off is free, because the constraint on it is lopsided: along the four arm
+axes only about 1.3 mm is spare at a 7 mm pitch, but a diagonal neighbour's
+centre is 9.9 mm away. A profile that swells into the diagonals has room a
+square core never uses.
+
+```yaml
+fabric: {link_type: tile, tile_shape: clover}
+```
+
+| `fabric.tile_shape` | |
+|---|---|
+| `square` `diamond` `circle` | the plain ones |
+| `hexagon` `octagon` | flatter faces |
+| `clover` `star` | swell into the diagonals: denser fabric, less see-through |
+
+Every profile is normalised so its radius **on the arm axes** is exactly the
+core radius, then only the roomy diagonals differ. That is what makes swapping
+shapes safe: the binding direction never moves, so the joint is untouched -
+all seven shapes thread their neighbour with an identical 0.504 mm3 of
+material in the hole.
+
+Shape changes how much of the sheet is solid: on the same lattice, `diamond`
+gives 26.5 mm3 per tile and `star` 39.0 mm3, a 47% range in density with the
+same mechanics.
+
+For a shape that is not in the list, a script can wire in any radius-by-angle
+formula through `tile_points`:
+
+```python
+theta = np.linspace(0, 2 * np.pi, 96, endpoint=False)
+r = limit * 0.8 * (1 + 0.35 * np.sin(8 * theta) ** 2)      # any formula
+points = np.column_stack([r * np.cos(theta), r * np.sin(theta)])
+```
+
+Anything supplied that way is checked against its neighbours with a boolean
+before the sheet is built, and rejected with the overlap volume if it fouls -
+so a bad formula fails loudly instead of printing as a fused slab. Keep the
+profile four-fold symmetric: a three- or six-lobed one puts a lobe on an arm
+axis, and that is exactly where there is no room.
+
 One limit that rings do not have: a tile's arms reach past the pitch into its
 neighbour, so relative rotation between rows closes the clearance at the arm tip.
 Drape is checked against that and rejected when too much curve is asked of too

@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 import trimesh
 
-from src.mesh.tile_mesh import TileMeshConfig, TileMeshBuilder, _box
+from src.mesh.tile_mesh import CORE_SHAPES, TileMeshConfig, TileMeshBuilder, _box
 
 
 def _builder(**kw):
@@ -85,7 +85,7 @@ def test_a_hole_too_tall_to_lock_is_rejected():
 
 def test_a_pin_with_nowhere_to_put_its_head_is_rejected():
     with pytest.raises(ValueError, match="no room for a pin head"):
-        _builder(core_fraction=0.70).validate_capturable()
+        _builder(loop_fraction=0.26).validate_capturable()
 
 
 def test_too_much_drape_over_too_few_rows_is_rejected():
@@ -128,3 +128,79 @@ def test_link_body_is_a_tile_so_connectors_thread_the_sheet():
     body.merge_vertices()
     assert (2 - body.euler_number) // 2 == 2
     assert len(b.link_sites()) == b.config.columns
+
+
+# --- the core profile is a variable; the joint is not -----------------------
+
+def _profile(fn, radius, n=96):
+    theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
+    r = radius * np.asarray(fn(theta), dtype=float)
+    return tuple(map(tuple, np.column_stack([r * np.cos(theta), r * np.sin(theta)])))
+
+
+@pytest.mark.parametrize("shape", sorted(CORE_SHAPES))
+def test_every_named_shape_keeps_the_joint_working(shape):
+    """Changing the core must not change the joint - that is the whole point."""
+    b = _builder(core_shape=shape)
+    b.validate_capturable()
+    tile = b.tile()
+    tile.merge_vertices()
+    assert (2 - tile.euler_number) // 2 == 2
+    b.validate_assembly(tile)
+
+
+@pytest.mark.parametrize("shape", sorted(CORE_SHAPES))
+def test_every_named_shape_is_threaded_identically(shape):
+    b = _builder(core_shape=shape)
+    c = b.config
+    hole = _box([c.loop_depth, c.hole_width, c.hole_height], [b.loop_offset, 0, b.mid])
+    neighbour = b.tile()
+    neighbour.apply_translation([c.pitch, 0, 0])
+    inside = trimesh.boolean.intersection([hole, neighbour], engine="manifold")
+    assert inside is not None and inside.volume == pytest.approx(0.504, abs=1e-3)
+
+
+@pytest.mark.parametrize("shape", sorted(CORE_SHAPES))
+def test_shapes_are_normalised_to_the_arm_axes(shape):
+    # Normalising on the axes is what makes a shape swap safe: the binding
+    # direction is fixed, and only the roomy diagonals change.
+    b = _builder(core_shape=shape)
+    points = b.core_profile()
+    assert np.linalg.norm(points[0]) == pytest.approx(b.core_radius(), rel=1e-6)
+
+
+def test_shape_changes_the_area_it_covers():
+    areas = {s: _builder(core_shape=s).tile().volume for s in ("diamond", "square", "star")}
+    assert areas["diamond"] < areas["square"] < areas["star"]
+
+
+def test_a_script_can_wire_in_its_own_formula():
+    b0 = _builder()
+    points = _profile(lambda th: 1 + 0.35 * np.sin(8 * th) ** 2, b0.max_core_radius() * 0.8)
+    b = _builder(core_points=points)
+    tile = b.tile()
+    tile.merge_vertices()
+    assert (2 - tile.euler_number) // 2 == 2
+    b.validate_assembly(tile)
+
+
+def test_a_profile_that_swells_onto_the_arm_axes_is_rejected():
+    b0 = _builder()
+    points = _profile(lambda th: 1 + 0.6 * np.abs(np.cos(2 * th)), b0.max_core_radius() * 0.8)
+    b = _builder(core_points=points)
+    with pytest.raises(ValueError, match="overlaps its"):
+        b.validate_assembly(b.tile())
+
+
+def test_the_core_limit_grows_with_the_core():
+    # core_fraction cannot outrun its own limit: enlarging the core pushes the
+    # pin further out, which moves the limit with it. The binding constraint on
+    # a bigger core is the loop, not the pin.
+    for fraction in (0.30, 0.36, 0.42, 0.50):
+        b = _builder(core_fraction=fraction)
+        assert b.core_radius() <= b.max_core_radius()
+
+
+def test_an_unknown_shape_name_is_rejected():
+    with pytest.raises(ValueError, match="unknown core_shape"):
+        _builder(core_shape="hexadecagon").core_profile()

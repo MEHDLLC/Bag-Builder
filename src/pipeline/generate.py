@@ -46,6 +46,8 @@ def _build_fabric(fabric_cfg):
         cfg = TileMeshConfig(pitch=fabric_cfg.get("tile_pitch", 7.0),
                              thickness=fabric_cfg.get("tile_thickness", 2.4),
                              clearance_gap=fabric_cfg.get("clearance_gap", 0.3),
+                             core_shape=fabric_cfg.get("tile_shape", "square"),
+                             core_points=tuple(map(tuple, fabric_cfg.get("tile_points", ()))),
                              rows=fabric_cfg.get("rows", 20),
                              columns=fabric_cfg.get("columns", 30),
                              drape_curvature=fabric_cfg.get("drape_curvature", 0.3))

@@ -35,12 +35,45 @@ class TileMeshConfig:
     wall: float = 0.75            # loop wall above and below the hole
     stem_height: float = 0.4      # the bottom-layer strap carrying the loop
     loop_depth: float = 0.6       # loop thickness along the arm
-    core_fraction: float = 0.30   # core size as a fraction of pitch
     loop_fraction: float = 0.46   # loop centre as a fraction of pitch
+    core_fraction: float = 0.30   # core width across the arm axes, as a fraction of pitch
+    core_shape: str = "square"    # a name from CORE_SHAPES, or use core_points
+    core_points: tuple = ()       # explicit (x, y) profile, overrides core_shape
     clearance_gap: float = 0.3
     rows: int = 20
     columns: int = 30
     drape_curvature: float = 0.3
+
+
+def _regular(sides):
+    """Radius-by-angle for a regular polygon with a vertex on the +x axis."""
+    step = 2 * np.pi / sides
+    def radius(theta):
+        local = np.mod(theta, step) - step / 2
+        return np.cos(step / 2) / np.cos(local)
+    return radius
+
+
+def _clover(bulge):
+    """Round on the axes, swelling into the diagonals where the room is."""
+    def radius(theta):
+        return 1.0 + bulge * (1.0 - np.abs(np.cos(2 * theta)))
+    return radius
+
+
+# Every profile is normalised so its radius on the arm axes is exactly 1, then
+# scaled by the room those axes actually have. That is the binding direction -
+# the diagonals have several times more space - so normalising there means a
+# shape swap never breaks the joint.
+CORE_SHAPES = {
+    "circle": lambda theta: np.ones_like(theta),
+    "square": lambda theta: 1.0 / np.maximum(np.abs(np.cos(theta)), np.abs(np.sin(theta))),
+    "diamond": lambda theta: 1.0 / (np.abs(np.cos(theta)) + np.abs(np.sin(theta))),
+    "hexagon": _regular(6),
+    "octagon": _regular(8),
+    "clover": _clover(0.9),
+    "star": lambda theta: 1.0 + 1.2 * np.abs(np.sin(2 * theta)) ** 3,
+}
 
 
 def _box(extents, center):
@@ -64,9 +97,51 @@ class TileMeshBuilder:
     # given in millimetres, so a change to either stays self-consistent instead
     # of quietly making the joint impossible.
 
+    def core_radius(self):
+        """Half the core's width measured along an arm axis.
+
+        An independent input, not derived: the pin and head are positioned
+        relative to the core, so deriving the core from them would be circular.
+        max_core_radius is the check on it.
+        """
+        return self.config.pitch * self.config.core_fraction / 2
+
+    def max_core_radius(self):
+        """How far the core may reach along an arm axis before it fouls.
+
+        Two things bound it and the tighter one wins: the neighbour's pin tip
+        coming the other way, and this tile's own loop hole, which the core
+        must not block. The diagonals are far less constrained - a diagonal
+        neighbour's centre is pitch*sqrt(2) away - which is why a profile that
+        swells into the diagonals has room a square core does not use.
+        """
+        c = self.config
+        pin_tip = c.pitch - self.pin_reach() - c.clearance_gap
+        own_loop = self.loop_offset - c.loop_depth / 2 - c.clearance_gap
+        return min(pin_tip, own_loop)
+
+    def core_profile(self, samples=96):
+        """The core's plan outline, as (x, y) points.
+
+        This is the part of the tile that is free to change. The joint - loop,
+        pin and head - is fixed, so any profile that stays inside the room the
+        axes allow keeps the fabric working. Pass core_points for a shape that
+        is not in CORE_SHAPES; a script can generate them from any formula.
+        """
+        c = self.config
+        if c.core_points:
+            return np.asarray(c.core_points, dtype=float)
+        if c.core_shape not in CORE_SHAPES:
+            raise ValueError(f"unknown core_shape {c.core_shape!r}; "
+                             f"expected one of {', '.join(sorted(CORE_SHAPES))}")
+        theta = np.linspace(0, 2 * np.pi, samples, endpoint=False)
+        radius = np.asarray(CORE_SHAPES[c.core_shape](theta), dtype=float) * self.core_radius()
+        return np.column_stack([radius * np.cos(theta), radius * np.sin(theta)])
+
     @property
     def core_size(self):
-        return self.config.pitch * self.config.core_fraction
+        """Kept as the axis-to-axis width, which is what the arms care about."""
+        return 2 * self.core_radius()
 
     @property
     def loop_offset(self):
@@ -168,6 +243,14 @@ class TileMeshBuilder:
                 f"no room for a pin head between the core and the loop at "
                 f"clearance_gap {c.clearance_gap}: raise loop_fraction above "
                 f"{c.loop_fraction} or lower core_fraction below {c.core_fraction}")
+        if self.core_radius() > self.max_core_radius():
+            raise ValueError(
+                f"core reaches {self.core_radius():.2f} mm along the arm axes but only "
+                f"{self.max_core_radius():.2f} mm is free. Lower core_fraction below "
+                f"{2 * self.max_core_radius() / c.pitch:.3f}, or widen the pitch")
+        # Reached only by a config that defeats the head-room check above; kept
+        # as a guard because core_points can move the core without touching
+        # core_fraction.
         head_bottom = self.mid - self.head_height() / 2
         if head_bottom <= c.stem_height:
             raise ValueError(f"pin head would foul the neighbour's stem: raise "
@@ -180,17 +263,20 @@ class TileMeshBuilder:
     # -- parts ------------------------------------------------------------
 
     def _core(self):
-        c = self.config
-        return _box([self.core_size, self.core_size, c.thickness],
-                    [0, 0, self.mid])
+        import shapely.geometry
+        polygon = shapely.geometry.Polygon(self.core_profile())
+        if not polygon.is_valid:
+            raise ValueError("core profile is self-intersecting")
+        return trimesh.creation.extrude_polygon(polygon, height=self.config.thickness)
 
     def _loop_arm(self):
         """A ring standing across the arm, carried on a bottom-layer stem."""
         c = self.config
-        inner_x = self.core_size / 2
+        # Arms start at the centre, not at the core edge, so they stay attached
+        # whatever shape the core is. The overlap is absorbed by the union.
         loop_near = self.loop_offset - c.loop_depth / 2
-        stem = _box([loop_near - inner_x, c.arm_width, c.stem_height],
-                    [(inner_x + loop_near) / 2, 0, c.stem_height / 2])
+        stem = _box([loop_near, c.arm_width, c.stem_height],
+                    [loop_near / 2, 0, c.stem_height / 2])
         outer = _box([c.loop_depth, c.arm_width, c.thickness],
                      [self.loop_offset, 0, self.mid])
         hole = _box([c.loop_depth * 2, c.hole_width, c.hole_height],
@@ -201,11 +287,10 @@ class TileMeshBuilder:
     def _pin_arm(self):
         """A bar at mid height with a head on the end, pointing along -x."""
         c = self.config
-        inner_x = self.core_size / 2
         pin_w = c.hole_width - 2 * c.clearance_gap
         tip = -self.pin_reach()
-        shaft = _box([self.pin_reach() - inner_x, pin_w, self.pin_height()],
-                     [-(inner_x + self.pin_reach()) / 2, 0, self.mid])
+        shaft = _box([self.pin_reach(), pin_w, self.pin_height()],
+                     [-self.pin_reach() / 2, 0, self.mid])
         head = _box([self.head_length(), pin_w, self.head_height()],
                     [tip + self.head_length() / 2, 0, self.mid])
         return [shaft, head]
@@ -265,11 +350,34 @@ class TileMeshBuilder:
     def anchor_points(self):
         return self._anchor_points
 
+    def validate_assembly(self, tile):
+        """Prove the built tile still clears its neighbours.
+
+        The named shapes are all checked in the test suite, but core_points
+        accepts anything, so the shape a script wires in gets the same proof
+        rather than being trusted. Three booleans on one tile - cheap next to
+        placing hundreds of them.
+        """
+        c = self.config
+        for label, offset in (("+x", [c.pitch, 0, 0]), ("+y", [0, c.pitch, 0]),
+                              ("diagonal", [c.pitch, c.pitch, 0])):
+            other = tile.copy()
+            other.apply_translation(offset)
+            hit = trimesh.boolean.intersection([tile, other], engine="manifold")
+            volume = 0.0 if hit is None or len(hit.vertices) == 0 else hit.volume
+            if volume > 1e-9:
+                raise ValueError(
+                    f"this core profile overlaps its {label} neighbour by "
+                    f"{volume:.4f} mm3. Keep the profile inside "
+                    f"{self.max_core_radius():.2f} mm on the arm axes; the "
+                    f"diagonals have far more room")
+
     def generate(self):
         self.validate_capturable()
         self.validate_drape()
         c = self.config
         tile = self.tile()
+        self.validate_assembly(tile)
         parts = []
         self._anchor_points = []
         for row in range(c.rows):
