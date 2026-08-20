@@ -1,18 +1,86 @@
 from dataclasses import dataclass
-from typing import List, Tuple
 import numpy as np
 import trimesh
 from .torus import make_torus
+
+# European 4-in-1. These three constants are the lattice, expressed as multiples
+# of the ring centreline radius, and they are not free parameters: they were
+# found by searching for a configuration where every ring is topologically
+# linked to exactly four neighbours while no two ring solids come closer than
+# the clearance gap. tests/test_interlink.py re-derives both properties from the
+# generated geometry, so changing any of these without re-running that test will
+# produce fabric that either falls apart or fuses solid.
+TILT_DEGREES = 30.0
+COLUMN_PITCH_RATIO = 2.50
+ROW_PITCH_RATIO = 0.65
+
+# Ratio of the ring's hole to its wire thickness. Four wires pass through every
+# hole in 4-in-1, so a fat wire in a small ring cannot link at all.
+MIN_ASPECT_RATIO = 4.0
+
+
+# Full curvature bends the sheet through this angle end to end.
+MAX_BEND_DEGREES = 90.0
+
+
+def drape_z(row, total_rows, curvature):
+    """Height of a row on the drape curve: zero at both edges, peak in the middle.
+
+    Kept for callers that want the old scalar. Note that displacing rows in z
+    like this does not bend a sheet - it shears it - and the shear swamps the
+    lattice, which is why the builder uses drape_frame instead.
+    """
+    if total_rows <= 1:
+        return 0.0
+    t = row / (total_rows - 1)
+    return curvature * 20.0 * (1 - (2 * t - 1) ** 2)
+
+
+def drape_frame(row, total_rows, curvature, row_pitch):
+    """Where a row sits on the draped sheet, and how far it has rotated.
+
+    Drape bends the sheet, so a row is carried around an arc *and turned* with
+    it. Rows stay one row pitch apart measured along the surface, which is what
+    keeps the lattice - and with it the linkage and the clearance - identical to
+    the flat sheet at any curvature. Sliding rows in z instead would shear the
+    lattice apart: at the old default the shear between neighbouring rows was
+    larger than the row pitch itself, which both broke links and fused rings.
+
+    Returns (y, z, bend) with bend in radians about the x axis.
+    """
+    span = row * row_pitch
+    if curvature <= 0 or total_rows <= 1:
+        return span, 0.0, 0.0
+    arc = (total_rows - 1) * row_pitch
+    total_angle = np.radians(MAX_BEND_DEGREES) * curvature
+    radius = arc / total_angle
+    theta = (span - arc / 2) / radius
+    return radius * np.sin(theta), radius * (1 - np.cos(theta)), theta
+
+
+def ring_tilt(row, tilt_degrees=TILT_DEGREES):
+    """Rings lean one way on even rows and the other way on odd rows.
+
+    Two parallel rings can never link - a ring in a parallel plane never crosses
+    this ring's disk - so the alternating lean is what makes the fabric a fabric.
+    """
+    return np.radians(tilt_degrees) * (-1.0 if row % 2 else 1.0)
+
+
+def ring_normal(row, tilt_degrees=TILT_DEGREES):
+    angle = ring_tilt(row, tilt_degrees)
+    return np.array([0.0, -np.sin(angle), np.cos(angle)])
 
 
 @dataclass
 class RingMeshConfig:
     outer_diameter: float = 8.0
-    tube_radius: float = 1.0
+    tube_radius: float = 0.5
     clearance_gap: float = 0.5
     rows: int = 20
     columns: int = 30
     drape_curvature: float = 0.3
+    tilt_degrees: float = TILT_DEGREES
 
 
 class RingMeshBuilder:
@@ -20,47 +88,108 @@ class RingMeshBuilder:
         self.config = config
         self._anchor_points = []
 
-    def _row_col_spacing(self):
+    @property
+    def centerline_radius(self):
+        return self.config.outer_diameter / 2 - self.config.tube_radius
+
+    @property
+    def aspect_ratio(self):
+        return (self.centerline_radius - self.config.tube_radius) / self.config.tube_radius
+
+    def validate_linkable(self):
         c = self.config
-        return c.outer_diameter - c.tube_radius
+        if self.centerline_radius <= c.tube_radius:
+            raise ValueError(
+                f"ring_outer_diameter {c.outer_diameter} is too small for "
+                f"ring_tube_radius {c.tube_radius}: the ring has no hole")
+        if self.aspect_ratio < MIN_ASPECT_RATIO:
+            wanted = c.tube_radius * 2 * (MIN_ASPECT_RATIO + 2)
+            raise ValueError(
+                f"ring hole is too small to interlink: aspect ratio "
+                f"{self.aspect_ratio:.2f} < {MIN_ASPECT_RATIO}. With "
+                f"ring_tube_radius {c.tube_radius} you need ring_outer_diameter "
+                f">= {wanted:.2f}, or keep the diameter and drop the tube radius "
+                f"to {c.outer_diameter / (2 * (MIN_ASPECT_RATIO + 2)):.2f}")
+
+    def column_pitch(self):
+        return COLUMN_PITCH_RATIO * self.centerline_radius
+
+    def row_pitch(self):
+        return ROW_PITCH_RATIO * self.centerline_radius
+
+    def _drape(self, row):
+        return drape_frame(row, self.config.rows, self.config.drape_curvature, self.row_pitch())
+
+    def ring_center(self, row, col):
+        dx = self.column_pitch()
+        x = col * dx + (dx / 2 if row % 2 else 0.0)
+        y, z, _ = self._drape(row)
+        return np.array([x, y, z])
+
+    def ring_angle(self, row):
+        """Total rotation about x: the ring's own lean plus the sheet's bend."""
+        _, _, bend = self._drape(row)
+        return ring_tilt(row, self.config.tilt_degrees) + bend
+
+    def ring_normal_at(self, row):
+        angle = self.ring_angle(row)
+        return np.array([0.0, -np.sin(angle), np.cos(angle)])
+
+    def make_ring(self, row):
+        c = self.config
+        ring = make_torus(c.outer_diameter, c.tube_radius)
+        ring.apply_transform(
+            trimesh.transformations.rotation_matrix(self.ring_angle(row), [1, 0, 0]))
+        return ring
+
+    def link_body(self):
+        """The body a connector places at a link site to thread the fabric.
+
+        A ring lattice is linked by another of its own rings, so this is just a
+        ring of row -1. Other fabrics link by other means, which is why the
+        connector asks the fabric rather than assuming a torus.
+        """
+        ring = make_torus(self.config.outer_diameter, self.config.tube_radius)
+        ring.apply_transform(
+            trimesh.transformations.rotation_matrix(self.ring_angle(-1), [1, 0, 0]))
+        return ring
+
+    def link_sites(self):
+        """Where a connector ring must sit to link the first row of fabric.
+
+        Row -1 of the same lattice. A ring placed here links rings (0, col-1)
+        and (0, col) exactly the way a real neighbouring row would, so the
+        connector is held by the same verified geometry as the fabric itself.
+        """
+        c = self.config
+        return [(self.ring_center(-1, col), self.ring_normal_at(-1))
+                for col in range(c.columns)]
 
     def anchor_points(self):
         return self._anchor_points
 
     def generate(self):
+        self.validate_linkable()
         c = self.config
-        spacing = self._row_col_spacing()
         parts = []
         self._anchor_points = []
         for row in range(c.rows):
-            y = row * spacing * 0.87
-            row_offset = (spacing / 2) if row % 2 else 0.0
-            z_curve = self._drape_z(row, c.rows)
             for col in range(c.columns):
-                x = col * spacing + row_offset
-                ring = make_torus(c.outer_diameter, c.tube_radius)
-                if row % 2 == 0:
-                    ring.apply_transform(trimesh.transformations.rotation_matrix(np.pi / 2, [1, 0, 0]))
-                translation = [x, y, z_curve]
-                ring.apply_translation(translation)
+                ring = self.make_ring(row)
+                center = self.ring_center(row, col)
+                ring.apply_translation(center)
                 parts.append(ring)
                 if row == 0:
-                    self._anchor_points.append(np.array(translation))
+                    self._anchor_points.append(center)
         return trimesh.util.concatenate(parts)
 
-    def _drape_z(self, row, total_rows):
-        c = self.config
-        if total_rows <= 1:
-            return 0.0
-        t = row / (total_rows - 1)
-        return c.drape_curvature * 20.0 * (1 - (2 * t - 1) ** 2)
 
-
-def build_handle_mesh(length_mm, width_rows=3, ring_outer_diameter=14.0, ring_tube_radius=2.2, clearance_gap=0.6):
-    spacing = ring_outer_diameter - ring_tube_radius
-    rows = max(2, int(length_mm / (spacing * 0.87)))
+def build_handle_mesh(length_mm, width_rows=3, ring_outer_diameter=14.0, ring_tube_radius=0.875,
+                      clearance_gap=0.6):
     cfg = RingMeshConfig(outer_diameter=ring_outer_diameter, tube_radius=ring_tube_radius,
-                          clearance_gap=clearance_gap, rows=rows, columns=width_rows, drape_curvature=0.0)
+                         clearance_gap=clearance_gap, rows=2, columns=width_rows,
+                         drape_curvature=0.0)
     builder = RingMeshBuilder(cfg)
-    mesh = builder.generate()
-    return mesh, builder
+    rows = max(2, int(round(length_mm / builder.row_pitch())))
+    builder.config.rows = rows
+    return builder.generate(), builder

@@ -1,4 +1,6 @@
 REQUIRED_TOP_LEVEL = ["body", "fabric"]
+LINK_TYPES = ("ring", "pyramid", "hybrid", "tile")
+CONNECTOR_TYPES = ("loop_hinge", "socket_peg", "fused_row")
 
 
 def validate_config(raw):
@@ -6,6 +8,12 @@ def validate_config(raw):
         if key not in raw:
             raise ValueError(f"Missing required config section: {key}")
     fabric = raw["fabric"]
+    link_type = fabric.get("link_type", "ring")
+    if link_type not in LINK_TYPES:
+        raise ValueError(f"fabric.link_type must be one of {', '.join(LINK_TYPES)}; got {link_type!r}")
+    conn_type = (raw.get("connector") or {}).get("type", "loop_hinge")
+    if conn_type not in CONNECTOR_TYPES:
+        raise ValueError(f"connector.type must be one of {', '.join(CONNECTOR_TYPES)}; got {conn_type!r}")
     od = fabric.get("ring_outer_diameter", 8.0)
     tr = fabric.get("ring_tube_radius", 1.0)
     gap = fabric.get("clearance_gap", 0.5)

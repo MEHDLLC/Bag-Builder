@@ -2,7 +2,7 @@ project_name: crossbody_hybrid
 units: mm
 body: {shape_profile: rectangular, width: 250, height: 180, depth: 70, corner_radius: 0}
 solids: {end_panels: {thickness: 3.0, material_wall_min: 1.5}, bottom_panel: {thickness: 3.0, foot_style: rail}}
-fabric: {link_type: hybrid, ring_outer_diameter: 9.0, ring_tube_radius: 1.2, clearance_gap: 0.5, rows: 18, columns: 26, drape_curvature: 0.4}
-handles: {count: 1, link_type: ring, ring_outer_diameter: 16.0, ring_tube_radius: 2.6, length: 500, width_rows: 4, end_reinforcement: loop}
+fabric: {link_type: hybrid, ring_outer_diameter: 9.0, ring_tube_radius: 0.75, clearance_gap: 0.5, rows: 18, columns: 26, drape_curvature: 0.4}
+handles: {count: 1, link_type: ring, ring_outer_diameter: 16.0, ring_tube_radius: 1.0, length: 500, width_rows: 4, end_reinforcement: loop}
 connector: {type: fused_row, loop_spacing: match_mesh, loop_diameter: auto}
 export: {formats: [stl], split_by_part: false, generate_preview_render: true}

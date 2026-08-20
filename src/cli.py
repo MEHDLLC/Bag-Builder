@@ -1,5 +1,6 @@
 import json
 import click
+from .mesh.tile_mesh import CORE_SHAPES
 from .pipeline.generate import generate as run_generate
 
 
@@ -21,8 +22,9 @@ def generate(config, out):
 def options():
     opts = {
         "body.shape_profile": ["rectangular", "rounded_rectangle", "trapezoidal"],
-        "fabric.link_type": ["ring", "pyramid", "hybrid"],
+        "fabric.link_type": ["ring", "pyramid", "hybrid", "tile"],
         "connector.type": ["loop_hinge", "socket_peg", "fused_row"],
+        "fabric.tile_shape": sorted(CORE_SHAPES),
         "solids.bottom_panel.foot_style": ["none", "rounded_feet", "rail"],
         "handles.end_reinforcement": ["sleeve", "loop", "flat_tab"],
         "export.formats": ["stl", "3mf", "step (planned)"],
