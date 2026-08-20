@@ -55,7 +55,12 @@ def ring_fit(body):
 
 
 def genus(body):
-    """0 for a blob, 1 for a ring. Only meaningful on a closed surface."""
+    """0 for a blob, 1 for a ring, N for a tile hooking N neighbours.
+
+    The body has to have its duplicated boundary vertices merged first or it
+    reads as an open shell and the genus is lost.
+    """
+    body.merge_vertices()
     if not body.is_watertight:
         return None
     euler = len(body.vertices) - len(body.edges_unique) + len(body.faces)
@@ -94,17 +99,33 @@ def describe(path, max_bodies, sample):
     examine = order[:max_bodies]
     bodies = [body_mesh(mesh, c) for c in examine]
 
-    rings, solids, open_shells = [], [], []
+    rings, solids, open_shells, hooked = [], [], [], []
     for b in bodies:
         g = genus(b)
-        (rings if g == 1 else solids if g == 0 else open_shells).append(b)
+        if g == 1:
+            rings.append(b)
+        elif g == 0:
+            solids.append(b)
+        elif g is None:
+            open_shells.append(b)
+        else:
+            hooked.append((g, b))
     print(f"\nof the {len(bodies)} largest bodies examined:")
     print(f"  ring-shaped (genus 1)   {len(rings)}")
     print(f"  solid blobs  (genus 0)  {len(solids)}")
+    print(f"  multi-holed tiles       {len(hooked)}")
     print(f"  not watertight          {len(open_shells)}")
 
+    if hooked and not rings:
+        holes = int(np.median([g for g, _ in hooked]))
+        box = np.array([b.bounds[1] - b.bounds[0] for _, b in hooked]).mean(axis=0)
+        print(f"\n  -> not chainmail: flat interlocking tiles, {holes} holes each,")
+        print(f"     so each tile hooks {holes} neighbours. Tile is "
+              f"{box[0]:.2f} x {box[1]:.2f} x {box[2]:.2f} mm.")
+        print("     See docs/reference-meshes.md for how this mechanism works.")
+
     if not rings:
-        print("\nNo ring-shaped bodies found - nothing to measure as chainmail.")
+        print("\nNo ring-shaped bodies - nothing further to measure as chainmail.")
         return
 
     fits = [ring_fit(b) for b in rings]
