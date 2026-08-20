@@ -1,0 +1,90 @@
+# Actions -> "Sweep · option combinations" -> Run workflow.
+# Builds every shape x link x connector combination so a change can be checked
+# against the whole option space at once. The mesh is deliberately coarse - this
+# is coverage, not production output.
+#
+# Each combination uploads its own artifact, and a failure in one does not stop
+# the rest, so one run tells you exactly which combinations are broken.
+name: "Sweep · option combinations"
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Example config to sweep from"
+        type: choice
+        default: tote_small
+        options: [tote_small, clutch_round, crossbody_hybrid]
+      mesh_density:
+        description: "Fabric mesh as ROWSxCOLUMNS - keep it small, this runs 27 times"
+        type: string
+        default: "6x8"
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        shape_profile: [rectangular, rounded_rectangle, trapezoidal]
+        link_type: [ring, pyramid, hybrid]
+        connector_type: [loop_hinge, socket_peg, fused_row]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Build the config
+        env:
+          PRESET: ${{ inputs.preset }}
+          SHAPE_PROFILE: ${{ matrix.shape_profile }}
+          LINK_TYPE: ${{ matrix.link_type }}
+          CONNECTOR_TYPE: ${{ matrix.connector_type }}
+          MESH_DENSITY: ${{ inputs.mesh_density }}
+        run: |
+          set -o pipefail
+          IFS='x' read -r ROWS COLUMNS <<< "$MESH_DENSITY"
+          python tools/build_config.py \
+            --base "configs/examples/$PRESET.yaml" \
+            --set "body.shape_profile=$SHAPE_PROFILE" \
+            --set "fabric.link_type=$LINK_TYPE" \
+            --set "connector.type=$CONNECTOR_TYPE" \
+            --set "fabric.rows=$ROWS" \
+            --set "fabric.columns=$COLUMNS" \
+            -o bag.yaml
+
+      - name: Generate
+        run: |
+          set -o pipefail
+          python -m src.cli generate --config bag.yaml --out out/ | tee report.txt
+
+      - name: Write the job summary
+        if: always()
+        env:
+          COMBINATION: "${{ matrix.shape_profile }} / ${{ matrix.link_type }} / ${{ matrix.connector_type }}"
+        run: |
+          {
+            echo "## $COMBINATION"
+            echo '```json'
+            cat report.txt 2>/dev/null || echo "generation failed - see the log"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sweep-${{ matrix.shape_profile }}-${{ matrix.link_type }}-${{ matrix.connector_type }}-${{ github.run_number }}
+          path: |
+            out/
+            bag.yaml
+          if-no-files-found: error

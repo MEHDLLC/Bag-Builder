@@ -1,0 +1,118 @@
+# Actions -> "Generate · bag" -> Run workflow.
+# Starts from one of the example configs and overrides the headline options on
+# top of it. Actions forms allow ten inputs, so anything not on the form goes
+# in extra_yaml as a YAML fragment, e.g.
+#   solids: {end_panels: {thickness: 3.6}}
+#
+# Two option values are accepted by the CLI but not yet implemented by the
+# generator, and produce no error when chosen:
+#   fabric link_type "hybrid"   - falls back to the ring mesh
+#   connector type  "fused_row" - emits no connector at all
+name: "Generate · bag"
+
+on:
+  workflow_dispatch:
+    inputs:
+      preset:
+        description: "Example config to start from"
+        type: choice
+        default: tote_small
+        options: [tote_small, clutch_round, crossbody_hybrid]
+      shape_profile:
+        description: "Body shape"
+        type: choice
+        default: keep
+        options: [keep, rounded_rectangle, rectangular, trapezoidal]
+      link_type:
+        description: "Fabric link type (hybrid is not implemented - see above)"
+        type: choice
+        default: keep
+        options: [keep, ring, pyramid, hybrid]
+      connector_type:
+        description: "Connector (fused_row is not implemented - see above)"
+        type: choice
+        default: keep
+        options: [keep, loop_hinge, socket_peg, fused_row]
+      foot_style:
+        description: "Bottom panel feet"
+        type: choice
+        default: keep
+        options: [keep, none, rounded_feet, rail]
+      dimensions:
+        description: "Body size in mm as WIDTHxHEIGHTxDEPTH, e.g. 300x220x90 (blank keeps the preset)"
+        type: string
+        default: ""
+      mesh_density:
+        description: "Fabric mesh as ROWSxCOLUMNS, e.g. 20x30 (blank keeps the preset)"
+        type: string
+        default: ""
+      handles:
+        description: "Number of handles"
+        type: choice
+        default: keep
+        options: [keep, "0", "1", "2"]
+      formats:
+        description: "Export formats"
+        type: choice
+        default: keep
+        options: [keep, stl, 3mf, stl_and_3mf]
+      extra_yaml:
+        description: "Extra config as a YAML fragment (see README)"
+        type: string
+        default: ""
+
+jobs:
+  # Actions expressions cannot split a string, so the compound fields are
+  # unpacked here and handed to the shared job as one assignment per line.
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      overrides: ${{ steps.overrides.outputs.overrides }}
+    steps:
+      - name: Assemble the overrides
+        id: overrides
+        env:
+          SHAPE_PROFILE: ${{ inputs.shape_profile }}
+          LINK_TYPE: ${{ inputs.link_type }}
+          CONNECTOR_TYPE: ${{ inputs.connector_type }}
+          FOOT_STYLE: ${{ inputs.foot_style }}
+          DIMENSIONS: ${{ inputs.dimensions }}
+          MESH_DENSITY: ${{ inputs.mesh_density }}
+          HANDLES: ${{ inputs.handles }}
+          FORMATS: ${{ inputs.formats }}
+        run: |
+          {
+            echo "overrides<<OVERRIDES_EOF"
+            echo "body.shape_profile=$SHAPE_PROFILE"
+            echo "fabric.link_type=$LINK_TYPE"
+            echo "connector.type=$CONNECTOR_TYPE"
+            echo "solids.bottom_panel.foot_style=$FOOT_STYLE"
+            echo "handles.count=$HANDLES"
+            if [ -n "$DIMENSIONS" ]; then
+              IFS='x' read -r WIDTH HEIGHT DEPTH <<< "$DIMENSIONS"
+              echo "body.width=$WIDTH"
+              echo "body.height=$HEIGHT"
+              echo "body.depth=$DEPTH"
+            fi
+            if [ -n "$MESH_DENSITY" ]; then
+              IFS='x' read -r ROWS COLUMNS <<< "$MESH_DENSITY"
+              echo "fabric.rows=$ROWS"
+              echo "fabric.columns=$COLUMNS"
+            fi
+            case "$FORMATS" in
+              stl)         echo "export.formats=[stl]" ;;
+              3mf)         echo "export.formats=[3mf]" ;;
+              stl_and_3mf) echo "export.formats=[stl, 3mf]" ;;
+            esac
+            echo "OVERRIDES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+  bag:
+    needs: prep
+    uses: ./.github/workflows/generate-common.yml
+    with:
+      title: "Bag: ${{ inputs.preset }}"
+      artifact: "bag-${{ inputs.preset }}"
+      base_config: "configs/examples/${{ inputs.preset }}.yaml"
+      overrides: ${{ needs.prep.outputs.overrides }}
+      extra_yaml: ${{ inputs.extra_yaml }}
