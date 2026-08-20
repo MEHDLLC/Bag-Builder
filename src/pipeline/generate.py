@@ -4,9 +4,9 @@ import yaml
 import trimesh
 from ..solids.panel import PanelBuilder, PanelConfig
 from ..mesh.ring_mesh import RingMeshBuilder, RingMeshConfig, build_handle_mesh
-from ..mesh.pyramid_mesh import PyramidMeshBuilder, PyramidMeshConfig
+from ..mesh.hybrid_mesh import HybridMeshBuilder, HybridMeshConfig
 from ..connectors.connector_builder import ConnectorBuilder, ConnectorConfig
-from .validate import validate_config, validate_mesh_geometry
+from .validate import validate_config, validate_mesh_geometry, LINK_TYPES
 
 
 def load_config(path):
@@ -16,19 +16,24 @@ def load_config(path):
 
 def _build_fabric(fabric_cfg):
     link_type = fabric_cfg.get("link_type", "ring")
-    if link_type == "pyramid":
-        cfg = PyramidMeshConfig(base_size=fabric_cfg.get("ring_outer_diameter", 8.0),
-                                 height=fabric_cfg.get("ring_tube_radius", 1.0) * 3,
-                                 clearance_gap=fabric_cfg.get("clearance_gap", 0.4),
-                                 rows=fabric_cfg.get("rows", 20), columns=fabric_cfg.get("columns", 30))
-        builder = PyramidMeshBuilder(cfg)
-    else:
+    if link_type in ("pyramid", "hybrid"):
+        cfg = HybridMeshConfig(outer_diameter=fabric_cfg.get("ring_outer_diameter", 8.0),
+                                tube_radius=fabric_cfg.get("ring_tube_radius", 0.5),
+                                clearance_gap=fabric_cfg.get("clearance_gap", 0.5),
+                                rows=fabric_cfg.get("rows", 20), columns=fabric_cfg.get("columns", 30),
+                                drape_curvature=fabric_cfg.get("drape_curvature", 0.3),
+                                scale_every_row=link_type == "pyramid")
+        builder = HybridMeshBuilder(cfg)
+    elif link_type == "ring":
         cfg = RingMeshConfig(outer_diameter=fabric_cfg.get("ring_outer_diameter", 8.0),
-                              tube_radius=fabric_cfg.get("ring_tube_radius", 1.0),
+                              tube_radius=fabric_cfg.get("ring_tube_radius", 0.5),
                               clearance_gap=fabric_cfg.get("clearance_gap", 0.5),
                               rows=fabric_cfg.get("rows", 20), columns=fabric_cfg.get("columns", 30),
                               drape_curvature=fabric_cfg.get("drape_curvature", 0.3))
         builder = RingMeshBuilder(cfg)
+    else:
+        raise ValueError(f"Unknown fabric.link_type {link_type!r}; "
+                         f"expected one of {', '.join(LINK_TYPES)}")
     return builder.generate(), builder
 
 
@@ -54,7 +59,7 @@ def _build_handles(handles_cfg):
     for i in range(count):
         mesh, _ = build_handle_mesh(length_mm=handles_cfg.get("length", 350), width_rows=handles_cfg.get("width_rows", 3),
                                      ring_outer_diameter=handles_cfg.get("ring_outer_diameter", 14.0),
-                                     ring_tube_radius=handles_cfg.get("ring_tube_radius", 2.2),
+                                     ring_tube_radius=handles_cfg.get("ring_tube_radius", 0.875),
                                      clearance_gap=handles_cfg.get("clearance_gap", 0.6))
         meshes[f"handle_{i+1}"] = mesh
     return meshes
@@ -63,13 +68,12 @@ def _build_handles(handles_cfg):
 def _build_connectors(connector_cfg, end_builder, fabric_builder):
     conn_type = connector_cfg.get("type", "loop_hinge")
     cfgattr = getattr(fabric_builder, "config", None)
-    loop_radius = getattr(cfgattr, "tube_radius", 1.0) * 1.2 if cfgattr else 1.2
+    loop_radius = getattr(cfgattr, "tube_radius", 0.5) if cfgattr else 0.5
     cbuilder = ConnectorBuilder(ConnectorConfig(type=conn_type, loop_tube_radius=loop_radius))
     edge = end_builder.edge_curve("top")
-    anchors = fabric_builder.anchor_points()
-    if len(anchors) == 0:
+    if not fabric_builder.link_sites():
         return {}
-    return {"connector_left": cbuilder.build(edge, anchors)}
+    return {"connector_left": cbuilder.build(edge, fabric_builder)}
 
 
 def generate(config_path, out_dir):

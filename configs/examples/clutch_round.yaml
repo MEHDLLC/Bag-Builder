@@ -2,7 +2,7 @@ project_name: clutch_round
 units: mm
 body: {shape_profile: trapezoidal, width: 200, height: 140, depth: 40, corner_radius: 8, top_width_ratio: 0.7}
 solids: {end_panels: {thickness: 2.5, material_wall_min: 1.2}, bottom_panel: {thickness: 2.5, foot_style: rounded_feet}}
-fabric: {link_type: pyramid, ring_outer_diameter: 6.0, ring_tube_radius: 0.8, clearance_gap: 0.4, rows: 14, columns: 20, drape_curvature: 0.15}
+fabric: {link_type: pyramid, ring_outer_diameter: 8.0, ring_tube_radius: 0.5, clearance_gap: 0.4, rows: 14, columns: 20, drape_curvature: 0.15}
 handles: {count: 0}
 connector: {type: socket_peg, loop_spacing: match_mesh, loop_diameter: auto}
 export: {formats: [stl, 3mf], split_by_part: true, generate_preview_render: false}

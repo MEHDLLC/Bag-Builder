@@ -2,7 +2,7 @@ project_name: tote_small
 units: mm
 body: {shape_profile: rounded_rectangle, width: 300, height: 220, depth: 90, corner_radius: 15}
 solids: {end_panels: {thickness: 3.0, material_wall_min: 1.5}, bottom_panel: {thickness: 3.0, foot_style: none}}
-fabric: {link_type: ring, ring_outer_diameter: 8.0, ring_tube_radius: 1.0, clearance_gap: 0.5, rows: 20, columns: 30, drape_curvature: 0.3}
-handles: {count: 2, link_type: ring, ring_outer_diameter: 14.0, ring_tube_radius: 2.2, length: 350, width_rows: 3, end_reinforcement: sleeve}
+fabric: {link_type: ring, ring_outer_diameter: 8.0, ring_tube_radius: 0.5, clearance_gap: 0.5, rows: 20, columns: 30, drape_curvature: 0.3}
+handles: {count: 2, link_type: ring, ring_outer_diameter: 14.0, ring_tube_radius: 0.875, length: 350, width_rows: 3, end_reinforcement: sleeve}
 connector: {type: loop_hinge, loop_spacing: match_mesh, loop_diameter: auto}
 export: {formats: [stl], split_by_part: true, generate_preview_render: true}
