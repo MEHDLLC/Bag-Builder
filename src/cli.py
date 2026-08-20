@@ -21,7 +21,7 @@ def generate(config, out):
 def options():
     opts = {
         "body.shape_profile": ["rectangular", "rounded_rectangle", "trapezoidal"],
-        "fabric.link_type": ["ring", "pyramid", "hybrid"],
+        "fabric.link_type": ["ring", "pyramid", "hybrid", "tile"],
         "connector.type": ["loop_hinge", "socket_peg", "fused_row"],
         "solids.bottom_panel.foot_style": ["none", "rounded_feet", "rail"],
         "handles.end_reinforcement": ["sleeve", "loop", "flat_tab"],

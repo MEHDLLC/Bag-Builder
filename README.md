@@ -44,16 +44,19 @@ python tools/build_config.py --base configs/examples/tote_small.yaml \
 
 ### Fabric link types
 
-All three build the same European 4-in-1 ring lattice, in which every interior
-ring is topologically linked to exactly four neighbours and no two ring solids
-come closer than the clearance gap. Both properties are verified numerically
-against the generated geometry in `tests/test_interlink.py`.
-
 | `fabric.link_type` | Geometry |
 |---|---|
-| `ring` | the bare 4-in-1 ring lattice |
+| `ring` | European 4-in-1 ring lattice |
 | `pyramid` | scalemail: a scale on every ring |
 | `hybrid` | a scale on alternating rows |
+| `tile` | flat interlocking tiles - lighter, and prints without overhangs |
+
+The three ring types build the same 4-in-1 lattice, in which every interior ring
+is topologically linked to exactly four neighbours and no two ring solids come
+closer than the clearance gap. Both properties are verified numerically against
+the generated geometry in `tests/test_interlink.py`.
+
+`tile` is a different mechanism entirely - see below.
 
 Scales cannot interlink with each other, so they hang from the rings rather than
 replacing them, each joined to its ring's wire by a lug and kept clear of the
@@ -73,6 +76,34 @@ cannot link at all. A ring below the minimum aspect ratio is rejected with a
 message telling you what to change; it is not silently built. Clearance scales
 with ring size, so a bigger `ring_outer_diameter` at the same aspect ratio gives
 both a thicker wire and more room between rings.
+
+### Flat tiles
+
+Modelled on the reference sheets measured in `docs/reference-meshes.md`. A tile
+is a flat plate with four arms: two *loops* standing across the arm, and two
+*pins* that thread the neighbouring tile's loop. One shape tiles the whole
+sheet, because a tile's +x loop is always met by its +x neighbour's -x pin.
+
+Each pin ends in a head taller than the hole it passes through, so the joint
+cannot be pulled apart. That only works because the sheet is printed in place
+and the head never has to pass through the hole.
+
+Why prefer it: on a full 300 x 220 bag wall it is **9.7 MB against 23.0 MB**
+for the ring lattice at equivalent coverage - 3.0 triangles per square
+millimetre against 6.8 - and every surface is a flat plate, so nothing
+overhangs and nothing needs support.
+
+    fabric: {link_type: tile, tile_pitch: 8.0, tile_thickness: 2.4, fit_body: true}
+
+The arm geometry is derived from `tile_pitch` and `clearance_gap` rather than
+given in millimetres, so changing either stays self-consistent. Impossible
+combinations are rejected with the specific dimension to change.
+
+One limit that rings do not have: a tile's arms reach past the pitch into its
+neighbour, so relative rotation between rows closes the clearance at the arm tip.
+Drape is checked against that and rejected when too much curve is asked of too
+few rows - the fix is more rows, not less curve, since the same curve spread
+over more rows bends each one less. A full bag wall has plenty.
 
 ### Connector types
 

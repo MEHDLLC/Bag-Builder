@@ -142,6 +142,18 @@ class RingMeshBuilder:
             trimesh.transformations.rotation_matrix(self.ring_angle(row), [1, 0, 0]))
         return ring
 
+    def link_body(self):
+        """The body a connector places at a link site to thread the fabric.
+
+        A ring lattice is linked by another of its own rings, so this is just a
+        ring of row -1. Other fabrics link by other means, which is why the
+        connector asks the fabric rather than assuming a torus.
+        """
+        ring = make_torus(self.config.outer_diameter, self.config.tube_radius)
+        ring.apply_transform(
+            trimesh.transformations.rotation_matrix(self.ring_angle(-1), [1, 0, 0]))
+        return ring
+
     def link_sites(self):
         """Where a connector ring must sit to link the first row of fabric.
 

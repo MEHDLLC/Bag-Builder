@@ -1,5 +1,5 @@
 REQUIRED_TOP_LEVEL = ["body", "fabric"]
-LINK_TYPES = ("ring", "pyramid", "hybrid")
+LINK_TYPES = ("ring", "pyramid", "hybrid", "tile")
 CONNECTOR_TYPES = ("loop_hinge", "socket_peg", "fused_row")
 
 

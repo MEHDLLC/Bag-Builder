@@ -6,6 +6,7 @@ import trimesh
 from ..solids.panel import PanelBuilder, PanelConfig
 from ..mesh.ring_mesh import RingMeshBuilder, RingMeshConfig, build_handle_mesh
 from ..mesh.hybrid_mesh import HybridMeshBuilder, HybridMeshConfig
+from ..mesh.tile_mesh import TileMeshBuilder, TileMeshConfig
 from ..connectors.connector_builder import ConnectorBuilder, ConnectorConfig
 from .validate import validate_config, validate_mesh_geometry, LINK_TYPES
 from . import assembly
@@ -24,6 +25,11 @@ def _fit_counts(fabric_cfg, body_cfg, bottom_thickness):
     any geometry is built.
     """
     from ..mesh.ring_mesh import COLUMN_PITCH_RATIO, ROW_PITCH_RATIO
+    opening_h = max(body_cfg.get("height", 220) - bottom_thickness, 1e-9)
+    if fabric_cfg.get("link_type") == "tile":
+        pitch = fabric_cfg.get("tile_pitch", 7.0)
+        return (max(int(np.floor(opening_h / pitch)), 1),
+                max(int(np.floor(body_cfg.get("width", 300) / pitch)), 1))
     od = fabric_cfg.get("ring_outer_diameter", 8.0)
     tr = fabric_cfg.get("ring_tube_radius", 0.5)
     radius = od / 2 - tr
@@ -36,7 +42,15 @@ def _fit_counts(fabric_cfg, body_cfg, bottom_thickness):
 
 def _build_fabric(fabric_cfg):
     link_type = fabric_cfg.get("link_type", "ring")
-    if link_type in ("pyramid", "hybrid"):
+    if link_type == "tile":
+        cfg = TileMeshConfig(pitch=fabric_cfg.get("tile_pitch", 7.0),
+                             thickness=fabric_cfg.get("tile_thickness", 2.4),
+                             clearance_gap=fabric_cfg.get("clearance_gap", 0.3),
+                             rows=fabric_cfg.get("rows", 20),
+                             columns=fabric_cfg.get("columns", 30),
+                             drape_curvature=fabric_cfg.get("drape_curvature", 0.3))
+        builder = TileMeshBuilder(cfg)
+    elif link_type in ("pyramid", "hybrid"):
         cfg = HybridMeshConfig(outer_diameter=fabric_cfg.get("ring_outer_diameter", 8.0),
                                 tube_radius=fabric_cfg.get("ring_tube_radius", 0.5),
                                 clearance_gap=fabric_cfg.get("clearance_gap", 0.5),
@@ -93,7 +107,10 @@ def _build_connectors(connector_cfg, fabric_builder, wall_transforms, body_cfg, 
     the real distance to the bottom panel edge.
     """
     conn_type = connector_cfg.get("type", "loop_hinge")
-    loop_radius = fabric_builder.config.tube_radius
+    # Stem thickness follows the fabric: a wire radius for ring lattices, a
+    # fraction of the sheet for tiles, which have no wire.
+    cfg = fabric_builder.config
+    loop_radius = getattr(cfg, "tube_radius", None) or cfg.thickness / 4
     cbuilder = ConnectorBuilder(ConnectorConfig(type=conn_type, loop_tube_radius=loop_radius))
     sites = fabric_builder.link_sites()
     if not sites:

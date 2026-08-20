@@ -46,11 +46,24 @@ class ConnectorBuilder:
         distances = np.linalg.norm(centers[:, None, :] - edge[None, :, :], axis=2)
         return edge[distances.argmin(axis=1)]
 
-    def link_ring(self, center, normal, outer_diameter, tube_radius):
-        ring = make_torus(outer_diameter, tube_radius)
-        ring.apply_transform(trimesh.geometry.align_vectors([0.0, 0.0, 1.0], normal))
-        ring.apply_translation(center)
-        return ring
+    def link_body(self, fabric_builder, center):
+        """The fabric's own link body, moved to this site.
+
+        Asking the fabric for it keeps the connector honest across link types:
+        a ring lattice is threaded by a ring, a tile sheet by a tile, and
+        neither is hardcoded here.
+        """
+        body = fabric_builder.link_body().copy()
+        body.apply_translation(center)
+        return body
+
+    def link_reach(self, fabric_builder):
+        """How far from a site's centre the link body extends, so the stem
+        leaves from its rim rather than its middle."""
+        cfg = fabric_builder.config
+        if hasattr(cfg, "outer_diameter"):
+            return cfg.outer_diameter
+        return getattr(cfg, "pitch", 8.0)
 
     def stem(self, center, normal, edge_point, outer_diameter):
         """A bar from the rim of the link ring to the panel edge.
@@ -81,13 +94,12 @@ class ConnectorBuilder:
         frame; without it the fabric's own untransformed sites are used.
         """
         sites = fabric_builder.link_sites() if sites is None else sites
-        od = fabric_builder.config.outer_diameter
-        tr = fabric_builder.config.tube_radius
+        reach = self.link_reach(fabric_builder)
         edge_points = self.edge_points_for_sites(edge_curve, sites)
         parts = []
         for (center, normal), edge_point in zip(sites, edge_points):
-            pieces = [self.link_ring(center, normal, od, tr)]
-            stem = self.stem(center, normal, edge_point, od)
+            pieces = [self.link_body(fabric_builder, center)]
+            stem = self.stem(center, normal, edge_point, reach)
             if stem is not None:
                 pieces.append(stem)
             parts.append(pieces)
