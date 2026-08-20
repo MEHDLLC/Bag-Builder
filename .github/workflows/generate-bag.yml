@@ -4,10 +4,10 @@
 # in extra_yaml as a YAML fragment, e.g.
 #   solids: {end_panels: {thickness: 3.6}}
 #
-# Two option values are accepted by the CLI but not yet implemented by the
-# generator, and produce no error when chosen:
-#   fabric link_type "hybrid"   - falls back to the ring mesh
-#   connector type  "fused_row" - emits no connector at all
+# The tile link type has one option that does not fit on the form, because
+# Actions allows only ten inputs. Set it in extra_yaml:
+#   fabric: {tile_shape: clover}
+# Shapes: square diamond circle hexagon octagon clover star.
 name: "Generate · bag"
 
 on:
@@ -17,19 +17,19 @@ on:
         description: "Example config to start from"
         type: choice
         default: tote_small
-        options: [tote_small, clutch_round, crossbody_hybrid]
+        options: [tote_small, clutch_round, crossbody_hybrid, swatch]
       shape_profile:
         description: "Body shape"
         type: choice
         default: keep
         options: [keep, rounded_rectangle, rectangular, trapezoidal]
       link_type:
-        description: "Fabric link type (hybrid is not implemented - see above)"
+        description: "Fabric link type"
         type: choice
         default: keep
-        options: [keep, ring, pyramid, hybrid]
+        options: [keep, ring, pyramid, hybrid, tile]
       connector_type:
-        description: "Connector (fused_row is not implemented - see above)"
+        description: "Connector"
         type: choice
         default: keep
         options: [keep, loop_hinge, socket_peg, fused_row]

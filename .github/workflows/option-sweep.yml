@@ -16,7 +16,7 @@ on:
         default: tote_small
         options: [tote_small, clutch_round, crossbody_hybrid]
       mesh_density:
-        description: "Fabric mesh as ROWSxCOLUMNS - keep it small, this runs 27 times"
+        description: "Fabric mesh as ROWSxCOLUMNS - keep it small, this runs 36 times"
         type: string
         default: "6x8"
 
@@ -29,7 +29,7 @@ jobs:
       max-parallel: 6
       matrix:
         shape_profile: [rectangular, rounded_rectangle, trapezoidal]
-        link_type: [ring, pyramid, hybrid]
+        link_type: [ring, pyramid, hybrid, tile]
         connector_type: [loop_hinge, socket_peg, fused_row]
     steps:
       - uses: actions/checkout@v4
