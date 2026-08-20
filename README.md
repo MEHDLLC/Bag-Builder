@@ -21,7 +21,8 @@ and pick a workflow — each has its own *Run workflow* form:
 | Workflow | What it does |
 |---|---|
 | **Generate · bag** | one bag: pick a preset, override shape, mesh, connector, handles, formats |
-| **Sweep · option combinations** | all 27 shape × link × connector combinations, one artifact each |
+| preset `swatch` | a 50 mm test coupon rather than a bag — print `fabric_front.stl` alone to find the clearance your printer frees at |
+| **Sweep · option combinations** | all 36 shape × link × connector combinations, one artifact each |
 
 The form starts from a config in `configs/examples/` and overrides the headline
 options on top of it, so every field left on *keep* takes the preset's value.
