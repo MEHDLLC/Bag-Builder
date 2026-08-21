@@ -28,10 +28,10 @@ from .ring_mesh import MAX_BEND_DEGREES, drape_frame
 @dataclass
 class TileMeshConfig:
     pitch: float = 7.0            # centre-to-centre spacing of tiles
-    thickness: float = 2.4        # total sheet thickness
+    thickness: float = 0.0        # total sheet thickness; 0 derives the minimum
+    pin_thickness: float = 0.6    # how thick the pin itself is
     arm_width: float = 3.0        # loop outer width, across the arm
     hole_width: float = 2.0       # the opening the pin threads
-    hole_height: float = 0.9
     wall: float = 0.75            # loop wall above and below the hole
     stem_height: float = 0.4      # the bottom-layer strap carrying the loop
     loop_depth: float = 0.6       # loop thickness along the arm
@@ -89,9 +89,32 @@ class TileMeshBuilder:
 
     # -- derived geometry -------------------------------------------------
 
+    # The z budget has to stack up: stem, clearance, head, clearance, stem. Fix
+    # any two of thickness, hole height and clearance and the third is decided,
+    # so only the pin and the clearance are given and the rest is derived. The
+    # first cut fixed all three and fell apart the moment a config asked for a
+    # different clearance.
+
+    @property
+    def hole_height(self):
+        return self.config.pin_thickness + 2 * self.config.clearance_gap
+
+    # How much taller than the hole the head has to be to actually catch on it.
+    LOCK_MARGIN = 0.4
+
+    @property
+    def min_thickness(self):
+        c = self.config
+        return (self.hole_height + 2 * (c.stem_height + c.clearance_gap)
+                + self.LOCK_MARGIN)
+
+    @property
+    def thickness(self):
+        return self.config.thickness or self.min_thickness
+
     @property
     def mid(self):
-        return self.config.thickness / 2
+        return self.thickness / 2
 
     # The arm geometry is derived from the pitch and the clearance rather than
     # given in millimetres, so a change to either stays self-consistent instead
@@ -166,11 +189,10 @@ class TileMeshBuilder:
         return self.config.pitch - tip
 
     def hole_span(self):
-        half = self.config.hole_height / 2
+        half = self.hole_height / 2
         return self.mid - half, self.mid + half
 
-    def pin_height(self):
-        return self.config.hole_height - 2 * self.vertical_clearance()
+
 
     def head_height(self):
         """Taller than the hole, so the pin cannot retract through it.
@@ -181,14 +203,31 @@ class TileMeshBuilder:
         a loose fit would push the head into the stem.
         """
         c = self.config
-        return (c.hole_height + self.head_height_limit()) / 2
+        return (self.hole_height + self.head_height_limit()) / 2
 
-    def head_height_limit(self):
-        """Above this the head fouls the stem of the tile it locks into."""
-        return self.config.thickness - 2 * self.config.stem_height
+    def head_height_limit(self):  # noqa: D401
+        """Above this the head fouls the stem of the tile it locks into.
+
+        The clearance belongs in here. Without it the head sat 0.10 mm off the
+        neighbour's stem however wide a gap the config asked for, and that -
+        not the hole - was the tightest place in the whole sheet.
+        """
+        c = self.config
+        return self.thickness - 2 * (c.stem_height + c.clearance_gap)
+
+    def pin_height(self):
+        """The pin's own thickness. The hole is this plus clearance each side."""
+        return self.config.pin_thickness
 
     def vertical_clearance(self):
-        return self.config.clearance_gap / 2
+        """The same gap the config asks for, not half of it.
+
+        The pin sits in the hole with this above and below. Halving it here
+        made the joint's tightest dimension half the requested clearance -
+        0.15 mm at a config asking for 0.30 - which is the one measurement
+        that decides whether the sheet frees itself on the bed.
+        """
+        return self.config.clearance_gap
 
     def arm_reach(self):
         """Furthest a tile's arm extends from its centre."""
@@ -223,17 +262,21 @@ class TileMeshBuilder:
 
     def validate_capturable(self):
         c = self.config
-        if self.head_height_limit() <= c.hole_height:
+        if self.head_height_limit() <= self.hole_height:
             raise ValueError(
-                f"no head can both lock and clear the stem: hole_height "
-                f"{c.hole_height} must be below thickness - 2*stem_height "
-                f"({self.head_height_limit():.2f}). Thicken the sheet, lower "
-                f"stem_height, or shorten the hole")
-        if self.head_height() <= c.hole_height:
+                f"no head can both lock and clear the stem by {c.clearance_gap} mm at "
+                f"thickness {self.thickness:.2f}; at least {self.min_thickness:.2f} "
+                f"is needed")
+        if self.head_height() <= self.hole_height:
             raise ValueError("pin head must be taller than the hole or the joint pulls apart")
-        if self.pin_height() <= 0:
-            raise ValueError(f"hole_height {c.hole_height} leaves no room for a pin "
-                             f"at clearance_gap {c.clearance_gap}")
+        if c.pin_thickness < 0.4:
+            raise ValueError(f"pin_thickness {c.pin_thickness} is too thin to print; "
+                             f"use at least 0.4")
+        if c.thickness and c.thickness < self.min_thickness:
+            raise ValueError(
+                f"thickness {c.thickness} cannot hold a {c.pin_thickness} mm pin at "
+                f"clearance_gap {c.clearance_gap}: the stem, clearance and head need "
+                f"at least {self.min_thickness:.2f}. Leave thickness at 0 to derive it")
         if c.hole_width - 2 * c.clearance_gap <= 0:
             raise ValueError(f"hole_width {c.hole_width} leaves no room for a pin "
                              f"at clearance_gap {c.clearance_gap}")
@@ -267,7 +310,7 @@ class TileMeshBuilder:
         polygon = shapely.geometry.Polygon(self.core_profile())
         if not polygon.is_valid:
             raise ValueError("core profile is self-intersecting")
-        return trimesh.creation.extrude_polygon(polygon, height=self.config.thickness)
+        return trimesh.creation.extrude_polygon(polygon, height=self.thickness)
 
     def _loop_arm(self):
         """A ring standing across the arm, carried on a bottom-layer stem."""
@@ -277,9 +320,9 @@ class TileMeshBuilder:
         loop_near = self.loop_offset - c.loop_depth / 2
         stem = _box([loop_near, c.arm_width, c.stem_height],
                     [loop_near / 2, 0, c.stem_height / 2])
-        outer = _box([c.loop_depth, c.arm_width, c.thickness],
+        outer = _box([c.loop_depth, c.arm_width, self.thickness],
                      [self.loop_offset, 0, self.mid])
-        hole = _box([c.loop_depth * 2, c.hole_width, c.hole_height],
+        hole = _box([c.loop_depth * 2, c.hole_width, self.hole_height],
                     [self.loop_offset, 0, self.mid])
         loop = trimesh.boolean.difference([outer, hole], engine="manifold")
         return [stem, loop]
@@ -350,27 +393,101 @@ class TileMeshBuilder:
     def anchor_points(self):
         return self._anchor_points
 
-    def validate_assembly(self, tile):
-        """Prove the built tile still clears its neighbours.
+    def neighbour_overlaps(self, tile, offset):
+        """Volume the tile and a neighbour share. Zero means they are apart.
 
-        The named shapes are all checked in the test suite, but core_points
-        accepts anything, so the shape a script wires in gets the same proof
-        rather than being trusted. Three booleans on one tile - cheap next to
-        placing hundreds of them.
+        Distance between points cannot answer this: two boxes can pass through
+        each other with every vertex far from every other vertex. Overlap needs
+        a boolean; only once that is zero is a distance meaningful.
+        """
+        other = tile.copy()
+        other.apply_translation(offset)
+        hit = trimesh.boolean.intersection([tile, other], engine="manifold")
+        return 0.0 if hit is None or len(hit.vertices) == 0 else hit.volume
+
+    def neighbour_gap(self, tile, offset, samples=3000):
+        """Closest approach between a tile and a neighbour, once they are apart.
+
+        Sampled over the surfaces rather than the vertices: these parts are
+        boxes, and the closest approach between two boxes is usually edge to
+        face, nowhere near a vertex. Only points in the slab where the two
+        bounding boxes come together can be the closest pair, so the rest are
+        dropped before the distances are computed - without that the matrix is
+        big enough to stall the test suite.
+        """
+        other = tile.copy()
+        other.apply_translation(offset)
+        here = np.vstack([tile.vertices, trimesh.sample.sample_surface(tile, samples)[0]])
+        there = np.vstack([other.vertices, trimesh.sample.sample_surface(other, samples)[0]])
+        margin = max(self.config.clearance_gap * 4, 1.0)
+        near_here = np.all((here >= other.bounds[0] - margin)
+                           & (here <= other.bounds[1] + margin), axis=1)
+        near_there = np.all((there >= tile.bounds[0] - margin)
+                            & (there <= tile.bounds[1] + margin), axis=1)
+        here = here[near_here] if near_here.any() else here
+        there = there[near_there] if near_there.any() else there
+        return float(np.linalg.norm(here[:, None, :] - there[None, :, :], axis=2).min())
+
+    def validate_assembly(self, tile):
+        """Prove the built tile still clears its neighbours by the asked-for gap.
+
+        Not merely that it does not overlap. A core that swells toward the
+        diagonals grows into the corridor where the *axis* neighbour's pin head
+        sits, between this tile's core and its loop - so the tightest point in
+        the sheet moves with the shape even though the joint itself does not.
+        Checking only for overlap let clover and star through at 0.23 and 0.21
+        mm against a requested 0.30, which prints fused.
         """
         c = self.config
         for label, offset in (("+x", [c.pitch, 0, 0]), ("+y", [0, c.pitch, 0]),
                               ("diagonal", [c.pitch, c.pitch, 0])):
-            other = tile.copy()
-            other.apply_translation(offset)
-            hit = trimesh.boolean.intersection([tile, other], engine="manifold")
-            volume = 0.0 if hit is None or len(hit.vertices) == 0 else hit.volume
-            if volume > 1e-9:
-                raise ValueError(
-                    f"this core profile overlaps its {label} neighbour by "
-                    f"{volume:.4f} mm3. Keep the profile inside "
-                    f"{self.max_core_radius():.2f} mm on the arm axes; the "
-                    f"diagonals have far more room")
+            volume = self.neighbour_overlaps(tile, offset)
+            gap = None if volume > 1e-9 else self.neighbour_gap(tile, offset)
+            # The gap is sampled, so compare with a little tolerance rather
+            # than rejecting a shape that measures 0.294 against 0.300.
+            if gap is not None and gap >= c.clearance_gap * 0.97:
+                continue
+            fix = self.largest_core_fraction()
+            detail = (f"overlaps it by {volume:.4f} mm3" if gap is None
+                      else f"comes within {gap:.3f} mm of it")
+            raise ValueError(
+                f"this core profile {detail} at the {label} neighbour, but "
+                f"clearance_gap asks for {c.clearance_gap}. Set core_fraction to "
+                f"about {fix:.2f} (which may be larger than it is now - enlarging "
+                f"the core pushes the neighbour's head clear of the bulge), widen "
+                f"the pitch, or ask for a smaller clearance_gap if your printer "
+                f"can hold it")
+
+    def largest_core_fraction(self, low=0.10, high=0.44, step=0.02):
+        """The biggest core_fraction this shape can use at this clearance.
+
+        Searched over the whole range rather than downward from the current
+        value, because the relationship is not monotonic: enlarging the core
+        pushes the neighbour's pin head further out, away from the core's own
+        diagonal bulge, so a bigger core can open the gap rather than close it.
+        Clover fails at 0.30 and passes at 0.36 for exactly that reason.
+        """
+        from dataclasses import replace
+        best = None
+        fraction = low
+        while fraction <= high + 1e-9:
+            trial = TileMeshBuilder(replace(self.config, core_fraction=round(fraction, 2)))
+            try:
+                trial.validate_capturable()
+                tile = trial.tile()
+            except ValueError:
+                fraction += step
+                continue
+            # Suggest with a margin, accept with a tolerance. The gap is
+            # sampled, so a value that only just clears here would re-measure
+            # marginally under there and the advice would be wrong.
+            ok = all(trial.neighbour_overlaps(tile, off) <= 1e-9
+                     and trial.neighbour_gap(tile, off) >= self.config.clearance_gap * 1.03
+                     for off in ([self.config.pitch, 0, 0], [0, self.config.pitch, 0]))
+            if ok:
+                best = round(fraction, 2)
+            fraction += step
+        return best if best is not None else low
 
     def generate(self):
         self.validate_capturable()

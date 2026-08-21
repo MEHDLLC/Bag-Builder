@@ -94,11 +94,27 @@ for the ring lattice at equivalent coverage - 3.0 triangles per square
 millimetre against 6.8 - and every surface is a flat plate, so nothing
 overhangs and nothing needs support.
 
-    fabric: {link_type: tile, tile_pitch: 8.0, tile_thickness: 2.4, fit_body: true}
+    fabric: {link_type: tile, tile_pitch: 8.0, fit_body: true}
 
-The arm geometry is derived from `tile_pitch` and `clearance_gap` rather than
-given in millimetres, so changing either stays self-consistent. Impossible
-combinations are rejected with the specific dimension to change.
+**It does not yet print without supports.** `tools/check_supports.py` slices a
+part and counts *islands* - regions appearing with nothing at all beneath them.
+The reference sheets have **zero**; a tile of ours has **two**, because the pin
+head is taller than the shaft it rides on, so its lower lip starts in mid-air.
+The references avoid this by running their arms full height with a notch in the
+middle, so material grows continuously from the bed. Redesigning the arm that
+way is the outstanding work; `test_the_tile_still_has_unsupported_islands` pins
+the defect until it is done.
+
+The arm geometry, the hole height and the sheet thickness are all derived from
+`tile_pitch`, `pin_thickness` and `clearance_gap` rather than given in
+millimetres. The z budget has to stack up - stem, clearance, head, clearance,
+stem - so fixing all of them independently breaks the joint the moment one
+changes. Impossible combinations are rejected with the dimension to change.
+
+`clearance_gap` means the tightest gap **anywhere** in the sheet, which is the
+number that decides whether it frees itself on the bed. It used to be halved
+vertically, and the pin head sat 0.10 mm off the neighbour's stem whatever was
+asked for, so a config asking for 0.30 mm really delivered 0.15 mm.
 
 #### The tile's shape is a variable; the joint is not
 
