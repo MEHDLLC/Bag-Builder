@@ -277,19 +277,38 @@ def test_an_unknown_shape_name_is_rejected():
         _builder(core_shape="hexadecagon").core_profile()
 
 
-def test_the_tile_still_has_unsupported_islands():
-    """Known defect, pinned so it is not forgotten.
-
-    The pin head is taller than the shaft it sits on, so its lower lip starts
-    in mid-air with nothing beneath it. The reference tiles have zero islands
-    because their arms run full height with a notch in the middle, growing
-    continuously from the bed. Ours does not, yet.
-
-    When the arm is redesigned this test should be inverted, not deleted.
-    """
+def _islands(mesh, layer=0.2):
     import sys
     sys.path.insert(0, ".")
     from tools.check_supports import report
+    return report(mesh, layer, quiet=True)[0]
 
-    islands, _ = report(_builder().tile(), 0.2, quiet=True)
-    assert islands > 0, "islands are gone - invert this test, the tile now prints clean"
+
+@pytest.mark.parametrize("shape", sorted(CORE_SHAPES))
+def test_the_tile_prints_without_supports(shape):
+    """No islands: nothing starts in mid-air.
+
+    The first arm ran at mid height with a head taller than it, so the head's
+    lower lip began in air - two islands per tile, 209 across a swatch. The arm
+    is now solid from the bed out to the neighbour's loop, and the head grows
+    upward off the tongue instead of hanging below it.
+    """
+    b = _builder(core_shape=shape, core_fraction=SHAPE_FRACTION.get(shape, 0.30))
+    assert _islands(b.tile()) == 0
+
+
+@pytest.mark.parametrize("layer", [0.15, 0.2, 0.3])
+def test_no_islands_at_any_sensible_layer_height(layer):
+    assert _islands(_builder().tile(), layer) == 0
+
+
+def test_a_whole_sheet_prints_without_supports():
+    assert _islands(_builder(rows=3, columns=3).generate()) == 0
+
+
+def test_the_pin_arm_stands_on_the_bed_for_most_of_its_length():
+    # Only the tongue is unsupported, and only as far as it must reach to pass
+    # through the neighbour's loop.
+    b = _builder()
+    assert b.fin_end() > b.tongue_length()
+    assert b.tongue_length() < b.config.pitch / 2

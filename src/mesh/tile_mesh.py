@@ -206,14 +206,13 @@ class TileMeshBuilder:
         return (self.hole_height + self.head_height_limit()) / 2
 
     def head_height_limit(self):  # noqa: D401
-        """Above this the head fouls the stem of the tile it locks into.
+        """Tallest head that still fits under the top of the sheet.
 
-        The clearance belongs in here. Without it the head sat 0.10 mm off the
-        neighbour's stem however wide a gap the config asked for, and that -
-        not the hole - was the tightest place in the whole sheet.
+        The head stands on the tongue and grows upward, so what bounds it is the
+        room above the tongue, not the neighbour's stem below.
         """
-        c = self.config
-        return self.thickness - 2 * (c.stem_height + c.clearance_gap)
+        return (self.thickness - self.config.clearance_gap
+                - (self.mid - self.pin_height() / 2))
 
     def pin_height(self):
         """The pin's own thickness. The hole is this plus clearance each side."""
@@ -327,16 +326,41 @@ class TileMeshBuilder:
         loop = trimesh.boolean.difference([outer, hole], engine="manifold")
         return [stem, loop]
 
+    def fin_end(self):
+        """How far the full-height part of the pin arm may reach.
+
+        It has to stop clear of the neighbour's loop, which is what it would
+        run into. Everything out to here is solid from the bed up; only the
+        short tongue past it is unsupported.
+        """
+        c = self.config
+        return c.pitch - self.loop_offset - c.loop_depth / 2 - c.clearance_gap
+
+    def tongue_length(self):
+        return self.pin_reach() - self.fin_end()
+
     def _pin_arm(self):
-        """A bar at mid height with a head on the end, pointing along -x."""
+        """A fin standing on the bed, a short tongue, and a head on the tip.
+
+        The first design ran the whole arm at mid height with a head taller than
+        it, which left the head's lower lip starting in mid-air - an island the
+        nozzle cannot print. Here the arm is solid from the bed out to the
+        neighbour's loop, the tongue cantilevers only the little way needed to
+        pass through it, and the head grows *upwards* off the tongue rather than
+        hanging below it. Nothing starts in mid-air.
+        """
         c = self.config
         pin_w = c.hole_width - 2 * c.clearance_gap
         tip = -self.pin_reach()
-        shaft = _box([self.pin_reach(), pin_w, self.pin_height()],
-                     [-self.pin_reach() / 2, 0, self.mid])
+        fin = _box([self.fin_end(), pin_w, self.thickness],
+                   [-self.fin_end() / 2, 0, self.mid])
+        tongue_bottom = self.mid - self.pin_height() / 2
+        tongue = _box([self.tongue_length(), pin_w, self.pin_height()],
+                      [-(self.fin_end() + self.pin_reach()) / 2, 0, self.mid])
         head = _box([self.head_length(), pin_w, self.head_height()],
-                    [tip + self.head_length() / 2, 0, self.mid])
-        return [shaft, head]
+                    [tip + self.head_length() / 2, 0,
+                     tongue_bottom + self.head_height() / 2])
+        return [fin, tongue, head]
 
     def tile(self):
         c = self.config

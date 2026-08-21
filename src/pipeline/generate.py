@@ -44,7 +44,7 @@ def _build_fabric(fabric_cfg):
     link_type = fabric_cfg.get("link_type", "ring")
     if link_type == "tile":
         cfg = TileMeshConfig(pitch=fabric_cfg.get("tile_pitch", 7.0),
-                             thickness=fabric_cfg.get("tile_thickness", 2.4),
+                             thickness=fabric_cfg.get("tile_thickness", 0.0),
                              clearance_gap=fabric_cfg.get("clearance_gap", 0.3),
                              core_shape=fabric_cfg.get("tile_shape", "square"),
                              core_points=tuple(map(tuple, fabric_cfg.get("tile_points", ()))),
@@ -111,8 +111,11 @@ def _build_connectors(connector_cfg, fabric_builder, wall_transforms, body_cfg, 
     conn_type = connector_cfg.get("type", "loop_hinge")
     # Stem thickness follows the fabric: a wire radius for ring lattices, a
     # fraction of the sheet for tiles, which have no wire.
+    # Ask the builder, not the config: a tile's thickness may be derived, and
+    # the config carries the 0 sentinel rather than the real number.
     cfg = fabric_builder.config
-    loop_radius = getattr(cfg, "tube_radius", None) or cfg.thickness / 4
+    thickness = getattr(fabric_builder, "thickness", None) or getattr(cfg, "thickness", 2.4)
+    loop_radius = getattr(cfg, "tube_radius", None) or thickness / 4
     cbuilder = ConnectorBuilder(ConnectorConfig(type=conn_type, loop_tube_radius=loop_radius))
     sites = fabric_builder.link_sites()
     if not sites:

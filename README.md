@@ -96,14 +96,20 @@ overhangs and nothing needs support.
 
     fabric: {link_type: tile, tile_pitch: 8.0, fit_body: true}
 
-**It does not yet print without supports.** `tools/check_supports.py` slices a
-part and counts *islands* - regions appearing with nothing at all beneath them.
-The reference sheets have **zero**; a tile of ours has **two**, because the pin
-head is taller than the shaft it rides on, so its lower lip starts in mid-air.
-The references avoid this by running their arms full height with a notch in the
-middle, so material grows continuously from the bed. Redesigning the arm that
-way is the outstanding work; `test_the_tile_still_has_unsupported_islands` pins
-the defect until it is done.
+**It prints without supports.** `tools/check_supports.py` slices a part and
+counts *islands* - regions appearing with nothing at all beneath them, which
+only supports can fix. Every shape, every layer height and a whole sheet come
+out at **zero**, matching the reference sheets.
+
+Getting there took redesigning the pin arm. The first one ran the whole arm at
+mid height with a head taller than it, so the head's lower lip began in air:
+two islands per tile, 209 across a swatch. The arm is now solid from the bed
+out to the neighbour's loop, and only a short tongue cantilevers the little way
+needed to pass through it, with the head growing *upwards* off the tongue.
+
+Orientation matters and the checker will tell you: the fabric is generated as a
+bag wall, so a swatch has to be laid flat by undoing that tip - rotating the
+wrong way round puts the tiles upside down and the islands come straight back.
 
 The arm geometry, the hole height and the sheet thickness are all derived from
 `tile_pitch`, `pin_thickness` and `clearance_gap` rather than given in

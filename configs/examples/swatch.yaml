@@ -4,7 +4,7 @@ project_name: swatch
 units: mm
 body: {shape_profile: rectangular, width: 50, height: 50, depth: 20, corner_radius: 0}
 solids: {end_panels: {thickness: 2.5, material_wall_min: 1.2}, bottom_panel: {thickness: 2.5, foot_style: none}}
-fabric: {link_type: tile, tile_pitch: 7.0, tile_thickness: 2.4, clearance_gap: 0.3, fit_body: true, drape_curvature: 0.0}
+fabric: {link_type: tile, tile_pitch: 7.0, clearance_gap: 0.3, fit_body: true, drape_curvature: 0.0}
 handles: {count: 0}
 connector: {type: loop_hinge, loop_spacing: match_mesh, loop_diameter: auto}
 export: {formats: [stl], split_by_part: true, generate_preview_render: false}
